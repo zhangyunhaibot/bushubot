@@ -82,16 +82,19 @@ show_help() {
   --bot-token    客户自己的 Telegram Bot Token
   --admin-id     客户的 Telegram user ID (数字)
   --master-url   master 服务器地址 (默认 ${MASTER_URL})
+  --keep-config  保留现有 config.json (重装 / 升级时用, 不覆盖客户已自定义的配置)
   -h, --help     显示帮助
 EOF
 }
 
+KEEP_CONFIG=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --license)    LICENSE_TOKEN="$2"; shift 2 ;;
     --bot-token)  BOT_TOKEN="$2"; shift 2 ;;
     --admin-id)   ADMIN_ID="$2"; shift 2 ;;
     --master-url) MASTER_URL="$2"; shift 2 ;;
+    --keep-config) KEEP_CONFIG=true; shift ;;
     -h|--help)    show_help; exit 0 ;;
     --) shift; break ;;
     -*) red "未知选项: $1"; show_help; exit 1 ;;
@@ -112,7 +115,7 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
-if [[ -z "$LICENSE_TOKEN" ]]; then
+if [[ "${KEEP_CONFIG}" != "true" && -z "$LICENSE_TOKEN" ]]; then
   red "缺少 --license 参数"
   show_help
   exit 1
@@ -200,84 +203,101 @@ rm -rf "${TMPDIR}"
 
 green "==> [6/9] 写入配置"
 
-# 缺参数：有 tty 就交互问，没 tty (cloud-init 模式) 就报错退出
-if [[ -z "$BOT_TOKEN" ]]; then
-  if [[ -t 0 ]]; then
-    read -p "请输入 Telegram Bot Token (来自 @BotFather): " BOT_TOKEN
-  else
-    red "缺少 --bot-token 参数（cloud-init 模式必须命令行传入）"
+# --keep-config 模式不重写 config.json, 也不需要这些参数
+if [[ "${KEEP_CONFIG}" != "true" ]]; then
+  # 缺参数：有 tty 就交互问，没 tty (cloud-init 模式) 就报错退出
+  if [[ -z "$BOT_TOKEN" ]]; then
+    if [[ -t 0 ]]; then
+      read -p "请输入 Telegram Bot Token (来自 @BotFather): " BOT_TOKEN
+    else
+      red "缺少 --bot-token 参数（cloud-init 模式必须命令行传入）"
+      exit 1
+    fi
+  fi
+  if [[ -z "$ADMIN_ID" ]]; then
+    if [[ -t 0 ]]; then
+      read -p "请输入 Telegram 用户 ID (数字): " ADMIN_ID
+    else
+      red "缺少 --admin-id 参数（cloud-init 模式必须命令行传入）"
+      exit 1
+    fi
+  fi
+  # 校验 admin_id 是数字
+  if ! [[ "$ADMIN_ID" =~ ^[0-9]+$ ]]; then
+    red "ADMIN_ID 必须是数字: $ADMIN_ID"
     exit 1
   fi
 fi
-if [[ -z "$ADMIN_ID" ]]; then
-  if [[ -t 0 ]]; then
-    read -p "请输入 Telegram 用户 ID (数字): " ADMIN_ID
-  else
-    red "缺少 --admin-id 参数（cloud-init 模式必须命令行传入）"
+
+# --keep-config 模式: 保留现有 config.json, 不覆盖客户已自定义的配置
+# 适用场景: 客户主动跑 install.sh 想"重装"但又不想丢自己改过的 config
+if [[ "${KEEP_CONFIG}" == "true" ]]; then
+  if [[ ! -f "${BACKEND_DIR}/config.json" ]]; then
+    red "❌ --keep-config 但 ${BACKEND_DIR}/config.json 不存在, 这看起来不是升级而是初装"
     exit 1
   fi
+  if [[ ! -f "${AGENT_DIR}/config.json" ]]; then
+    red "❌ --keep-config 但 ${AGENT_DIR}/config.json 不存在, 这看起来不是升级而是初装"
+    exit 1
+  fi
+  green "    🔒 --keep-config: 跳过覆写 config.json (保留原有配置)"
+else
+  JWT_SECRET=$(openssl rand -base64 48 | tr -d '/+=' | cut -c1-48)
+  INTERNAL_API_KEY=$(openssl rand -base64 48 | tr -d '/+=' | cut -c1-48)
+
+  # tgfulibot 主程序配置（同时把 license token 写进 license.token，等 TGfulibot 接入后会校验）
+  jq -n \
+    --arg db_user "${DB_USER}" \
+    --arg db_pass "${DB_PASSWORD}" \
+    --arg db_name "${DB_NAME}" \
+    --arg bot_token "${BOT_TOKEN}" \
+    --argjson admin_id "${ADMIN_ID}" \
+    --arg jwt_secret "${JWT_SECRET}" \
+    --arg api_key "${INTERNAL_API_KEY}" \
+    --arg license_token "${LICENSE_TOKEN}" \
+    --arg master_url "${MASTER_URL}" \
+    '{
+      server: { port: 8080, allowed_origins: ["http://localhost:5173"] },
+      database: { host: "localhost", port: 5432, user: $db_user, password: $db_pass, dbname: $db_name },
+      redis: { host: "localhost", port: 6379, password: "", db: 0 },
+      telegram_bot: { token: $bot_token, debug: false, admin_id: $admin_id },
+      bot_token: $bot_token,
+      jwt: { secret: $jwt_secret, expire_hours: 24 },
+      internal_api_key: $api_key,
+      admin_ids: [$admin_id],
+      license: { token: $license_token, master_url: $master_url }
+    }' > "${BACKEND_DIR}/config.json"
+  chown "${APP_USER}:${APP_USER}" "${BACKEND_DIR}/config.json"
+  chmod 600 "${BACKEND_DIR}/config.json"
+
+  # agent 配置
+  jq -n \
+    --arg master_url "${MASTER_URL}" \
+    --arg license "${LICENSE_TOKEN}" \
+    --arg bot_token "${BOT_TOKEN}" \
+    --argjson owner_id "${ADMIN_ID}" \
+    --arg app_name "${APP_NAME}" \
+    --arg app_dir "${APP_DIR}" \
+    --arg binary "${BACKEND_DIR}/${APP_NAME}" \
+    --arg service "${APP_NAME}.service" \
+    --arg version_file "${BACKEND_DIR}/VERSION" \
+    '{
+      master_url: $master_url,
+      license_key: $license,
+      bot_token: $bot_token,
+      owner_tg_id: $owner_id,
+      heartbeat_interval_seconds: 1200,
+      command_pull_interval_seconds: 60,
+      grace_days_offline: 7,
+      app_name: $app_name,
+      app_dir: $app_dir,
+      binary_path: $binary,
+      service_name: $service,
+      version_file: $version_file
+    }' > "${AGENT_DIR}/config.json"
+  chown "${APP_USER}:${APP_USER}" "${AGENT_DIR}/config.json"
+  chmod 600 "${AGENT_DIR}/config.json"
 fi
-# 校验 admin_id 是数字
-if ! [[ "$ADMIN_ID" =~ ^[0-9]+$ ]]; then
-  red "ADMIN_ID 必须是数字: $ADMIN_ID"
-  exit 1
-fi
-
-JWT_SECRET=$(openssl rand -base64 48 | tr -d '/+=' | cut -c1-48)
-INTERNAL_API_KEY=$(openssl rand -base64 48 | tr -d '/+=' | cut -c1-48)
-
-# tgfulibot 主程序配置（同时把 license token 写进 license.token，等 TGfulibot 接入后会校验）
-jq -n \
-  --arg db_user "${DB_USER}" \
-  --arg db_pass "${DB_PASSWORD}" \
-  --arg db_name "${DB_NAME}" \
-  --arg bot_token "${BOT_TOKEN}" \
-  --argjson admin_id "${ADMIN_ID}" \
-  --arg jwt_secret "${JWT_SECRET}" \
-  --arg api_key "${INTERNAL_API_KEY}" \
-  --arg license_token "${LICENSE_TOKEN}" \
-  --arg master_url "${MASTER_URL}" \
-  '{
-    server: { port: 8080, allowed_origins: ["http://localhost:5173"] },
-    database: { host: "localhost", port: 5432, user: $db_user, password: $db_pass, dbname: $db_name },
-    redis: { host: "localhost", port: 6379, password: "", db: 0 },
-    telegram_bot: { token: $bot_token, debug: false, admin_id: $admin_id },
-    bot_token: $bot_token,
-    jwt: { secret: $jwt_secret, expire_hours: 24 },
-    internal_api_key: $api_key,
-    admin_ids: [$admin_id],
-    license: { token: $license_token, master_url: $master_url }
-  }' > "${BACKEND_DIR}/config.json"
-chown "${APP_USER}:${APP_USER}" "${BACKEND_DIR}/config.json"
-chmod 600 "${BACKEND_DIR}/config.json"
-
-# agent 配置
-jq -n \
-  --arg master_url "${MASTER_URL}" \
-  --arg license "${LICENSE_TOKEN}" \
-  --arg bot_token "${BOT_TOKEN}" \
-  --argjson owner_id "${ADMIN_ID}" \
-  --arg app_name "${APP_NAME}" \
-  --arg app_dir "${APP_DIR}" \
-  --arg binary "${BACKEND_DIR}/${APP_NAME}" \
-  --arg service "${APP_NAME}.service" \
-  --arg version_file "${BACKEND_DIR}/VERSION" \
-  '{
-    master_url: $master_url,
-    license_key: $license,
-    bot_token: $bot_token,
-    owner_tg_id: $owner_id,
-    heartbeat_interval_seconds: 1200,
-    command_pull_interval_seconds: 60,
-    grace_days_offline: 7,
-    app_name: $app_name,
-    app_dir: $app_dir,
-    binary_path: $binary,
-    service_name: $service,
-    version_file: $version_file
-  }' > "${AGENT_DIR}/config.json"
-chown "${APP_USER}:${APP_USER}" "${AGENT_DIR}/config.json"
-chmod 600 "${AGENT_DIR}/config.json"
 
 green "==> [7/9] 写入 systemd 服务"
 # tgfulibot 主程序
