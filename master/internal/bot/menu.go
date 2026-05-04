@@ -35,12 +35,14 @@ func customerHealthEmoji(c *model.Customer) string {
 }
 
 // customerListLabel 列表按钮 label, 例: "🟢 测试王 v0.51"
+// CurrentVersion 还没上来 (新加客户 + agent 还没心跳) 时只显示 "🔴 名字",
+// 不拼孤零零的 "?" 避免视觉噪声; agent 心跳后会自动加上版本号
 func customerListLabel(c *model.Customer) string {
-	ver := c.CurrentVersion
-	if ver == "" {
-		ver = "?"
+	label := customerHealthEmoji(c) + " " + c.Name
+	if c.CurrentVersion != "" {
+		label += " " + c.CurrentVersion
 	}
-	return customerHealthEmoji(c) + " " + c.Name + " " + ver
+	return label
 }
 
 // callback_data 命名约定（< 64 字节）：
