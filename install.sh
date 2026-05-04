@@ -28,7 +28,7 @@ DB_NAME="telegram_bot"
 DB_USER="tgfulibot"
 
 # 主控地址（默认值，可被 --master-url 覆盖）
-MASTER_URL="https://master.bushubot.example.com"
+MASTER_URL="https://master.qunzhi.name"
 
 # 发布仓 (公开仓 owner/name)
 RELEASE_REPO_TGFULIBOT="zhangyunhaibot/TGfulibot-releases"

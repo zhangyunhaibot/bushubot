@@ -263,7 +263,7 @@ func (h *Handler) cmdAdd(chat int64, args string) {
 
 // buildSSHCommand 生成给已有服务器 SSH 直接执行的命令
 func buildSSHCommand(licenseToken, botToken string, adminID int64) string {
-	return fmt.Sprintf(`curl -fsSL https://install.bushubot.example.com/install.sh | sudo bash -s -- \
+	return fmt.Sprintf(`curl -fsSL https://raw.githubusercontent.com/zhangyunhaibot/bushubot/main/install.sh | sudo bash -s -- \
   --license '%s' \
   --bot-token '%s' \
   --admin-id %d`, licenseToken, botToken, adminID)

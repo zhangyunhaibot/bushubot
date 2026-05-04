@@ -1,5 +1,5 @@
 {
-  "master_url": "https://master.bushubot.example.com",
+  "master_url": "https://master.qunzhi.name",
   "license_key": "REPLACE_ME_WITH_LICENSE_TOKEN_FROM_MASTER",
   "bot_token": "REPLACE_ME_WITH_CUSTOMER_TG_BOT_TOKEN",
   "owner_tg_id": 0,
