@@ -130,23 +130,24 @@ func (h *Handler) sendCustomerDetail(chat int64, msgID int, c *model.Customer) {
 	)
 
 	id := strconv.Itoa(int(c.ID))
-	togglekey := "disable"
+	// 启用是恢复操作风险低, 直接执行; 停用 / 重启 / 更新 / 重签都加二次确认
 	togglelabel := "🔴 停用"
+	togglekey := "askDisable"
 	if !c.Enabled {
-		togglekey = "enable"
 		togglelabel = "🟢 启用"
+		togglekey = "enable"
 	}
 	kb := tgbotapi.NewInlineKeyboardMarkup(
 		row(
-			btn("🔄 重启服务", "cust:"+id+":restart"),
-			btn("⚡ 立即更新", "cust:"+id+":update"),
+			btn("🔄 重启服务", "cust:"+id+":askRestart"),
+			btn("⚡ 立即更新", "cust:"+id+":askUpdate"),
 		),
 		row(
 			btn("📋 查看日志", "cust:"+id+":logs"),
 			btn("📈 历史曲线", "cust:"+id+":chart"),
 		),
 		row(
-			btn("🔁 重签 License", "cust:"+id+":reissue"),
+			btn("🔁 重签 License", "cust:"+id+":askReissue"),
 			btn("📢 单独通知", "cust:"+id+":notify"),
 		),
 		row(

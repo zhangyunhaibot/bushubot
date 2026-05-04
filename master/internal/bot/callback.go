@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"bushubot-master/internal/model"
+
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
@@ -163,6 +165,22 @@ func (h *Handler) handleCustomerAction(chat int64, msgID int, data string) {
 	case "detail":
 		h.sendCustomerDetail(chat, msgID, c)
 
+	case "askRestart":
+		h.sendConfirmPage(chat, msgID, c, "restart", "🔄 重启 tgfulibot 服务",
+			"客户业务会短暂中断，约 60s 内自动恢复")
+
+	case "askUpdate":
+		h.sendConfirmPage(chat, msgID, c, "update", "⚡ 立即强制更新",
+			"客户会立刻拉新版 tgfulibot 并重启，业务会短暂中断")
+
+	case "askDisable":
+		h.sendConfirmPage(chat, msgID, c, "disable", "🛑 停用客户",
+			"客户下次心跳后会立刻 stop tgfulibot 服务，业务停止")
+
+	case "askReissue":
+		h.sendConfirmPage(chat, msgID, c, "reissue", "🔁 重签 License",
+			"会签发一个新 token, 旧 token 仍可用直到过期; 客户需要替换 config.json 重启")
+
 	case "restart":
 		if !c.Enabled {
 			h.reply(chat, "⚠️ 客户已停用，先启用再重启")
@@ -266,4 +284,17 @@ func safeFilename(s string) string {
 		s = "customer"
 	}
 	return s
+}
+
+// sendConfirmPage 显示一个二次确认页, 防止误点击触发危险操作
+// confirmAction 是确认按钮回调时的 action 名 (例如 "restart"), 取消固定回详情页
+func (h *Handler) sendConfirmPage(chat int64, msgID int, c *model.Customer, confirmAction, title, hint string) {
+	id := strconv.Itoa(int(c.ID))
+	text := fmt.Sprintf("⚠️ <b>确认操作</b>\n\n%s · 客户 <b>%s</b>\n\nℹ️ %s",
+		title, htmlEsc(c.Name), hint)
+	kb := tgbotapi.NewInlineKeyboardMarkup(row(
+		btn("✅ 确认", "cust:"+id+":"+confirmAction),
+		btn("❌ 取消", "cust:"+id+":detail"),
+	))
+	h.sendOrEdit(chat, msgID, text, ptrKB(kb))
 }
