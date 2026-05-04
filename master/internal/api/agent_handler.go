@@ -158,10 +158,22 @@ func (h *AgentHandler) heartbeat(c *gin.Context) {
 		return
 	}
 
+	// agent 在云主机上 net.Dial 拿到的是网卡内网 IP, 这里用 HTTP 请求的真实来源 IP
+	// (nginx 反代会注入 X-Real-IP / X-Forwarded-For). 拿不到 (直连 / loopback) 时 fallback 到 agent 上报值
+	serverIP := strings.TrimSpace(c.GetHeader("X-Real-IP"))
+	if serverIP == "" {
+		if xff := c.GetHeader("X-Forwarded-For"); xff != "" {
+			serverIP = strings.TrimSpace(strings.Split(xff, ",")[0])
+		}
+	}
+	if serverIP == "" || strings.HasPrefix(serverIP, "127.") || serverIP == "::1" {
+		serverIP = req.ServerIP
+	}
+
 	if err := h.store.UpdateHeartbeat(cust.ID, store.HeartbeatUpdate{
 		CurrentVersion: req.CurrentVersion,
 		AgentVersion:   req.AgentVersion,
-		ServerIP:       req.ServerIP,
+		ServerIP:       serverIP,
 		MemUsedMB:      req.MemUsedMB,
 		MemTotalMB:     req.MemTotalMB,
 		DiskUsedGB:     req.DiskUsedGB,
