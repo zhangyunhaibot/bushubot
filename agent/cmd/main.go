@@ -198,12 +198,15 @@ func heartbeat(cli *client.Client, st *state) (*client.HeartbeatResponse, error)
 	return resp, nil
 }
 
-func handleHeartbeatResp(upd *updater.Updater, cli *client.Client, st *state, resp *client.HeartbeatResponse) {
+// handleHeartbeatResp 处理心跳响应。
+// 返回升级到的 tgfulibot 版本（空字符串 = 没升级 / 升级失败 / 走了 agent 自我更新分支）。
+// 调用方可据此在升级成功后追加客户侧通知。
+func handleHeartbeatResp(upd *updater.Updater, cli *client.Client, st *state, resp *client.HeartbeatResponse) string {
 	// 1. 服务被远程停用
 	if !resp.Enabled {
 		log.Println("master 标记客户为 disabled，停止 tgfulibot 服务")
 		_ = upd.StopService()
-		return
+		return ""
 	}
 
 	// 2. agent 自我更新优先于业务更新
@@ -214,20 +217,22 @@ func handleHeartbeatResp(upd *updater.Updater, cli *client.Client, st *state, re
 			log.Printf("自我更新失败: %v", err)
 		}
 		// 自我更新成功不会执行到这里（已 os.Exit）
-		return
+		return ""
 	}
 
 	// 3. 有新版本才更新 tgfulibot（语义比较，防降级 + 防字面歧义如 v1.01 / v1.1）
 	if resp.LatestVersion == "" {
-		return
+		return ""
 	}
 	if version.Compare(resp.LatestVersion, st.read().currentVersion) <= 0 {
-		return
+		return ""
 	}
 	log.Printf("发现新版本 %s，开始更新", resp.LatestVersion)
 	if err := performUpdate(upd, cli, st, resp.LatestVersion, resp.DownloadURL); err != nil {
 		log.Printf("更新失败: %v", err)
+		return ""
 	}
+	return resp.LatestVersion
 }
 
 // shouldSelfUpdate 判断 agent 自身是否需要升级
@@ -298,16 +303,23 @@ func performUpdate(upd *updater.Updater, cli *client.Client, st *state, version,
 	st.update(func(s *state) { s.currentVersion = version })
 	_ = cli.Report(client.ReportRequest{EventType: "update_done", Version: version})
 	log.Printf("更新到 %s 成功", version)
+
+	// 升级成功后立刻补一次心跳，让 master 后台立即看到新版本
+	// （否则要等下一次 20min 心跳，看起来像"没更新"）
+	if _, err := heartbeat(cli, st); err != nil {
+		log.Printf("升级后回报心跳失败（不影响升级结果）: %v", err)
+	}
 	return nil
 }
 
 // 通知 type 枚举（必须跟 master/internal/store 保持一致）
 const (
-	notifTypeManual         = "manual"
-	notifTypeRestartService = "restart_service"
-	notifTypeForceUpdate    = "force_update"
-	notifTypeUpdateInfo     = "update_info" // 文本形式的更新通知（"已更新到 vX"）
-	notifTypeFetchLogs      = "fetch_logs"  // 让 agent 抓本地日志上传
+	notifTypeManual          = "manual"
+	notifTypeRestartService  = "restart_service"
+	notifTypeForceUpdate     = "force_update"
+	notifTypeUpdateAvailable = "update_available" // /release 广播：等同 force_update，立即心跳+升级
+	notifTypeUpdateInfo      = "update_info"      // 文本形式的更新通知（"已更新到 vX"）
+	notifTypeFetchLogs       = "fetch_logs"       // 让 agent 抓本地日志上传
 )
 
 func pullNotifications(cli *client.Client, bh *bot.Handler, upd *updater.Updater, st *state) {
@@ -341,7 +353,7 @@ func handleOneNotification(cli *client.Client, bh *bot.Handler, upd *updater.Upd
 		_ = bh.SendNotification("🔄 服务已根据管理员指令重启")
 		return true
 
-	case notifTypeForceUpdate:
+	case notifTypeForceUpdate, notifTypeUpdateAvailable:
 		log.Printf("收到 master 指令: 立即检查更新")
 		hb, err := heartbeat(cli, st)
 		if err != nil {
@@ -349,7 +361,15 @@ func handleOneNotification(cli *client.Client, bh *bot.Handler, upd *updater.Upd
 			return false
 		}
 		st.markSuccess()
-		handleHeartbeatResp(upd, cli, st, hb)
+		upgraded := handleHeartbeatResp(upd, cli, st, hb)
+		// 升级成功且 master 带了文案 → 转发给客户 bot
+		// （/release 走 update_available 时会带「📦 新版本 vX 已发布\n\n<notes>」；
+		//   后台「⚡ 立即更新」按钮走 force_update message 是空的，跳过）
+		if upgraded != "" && n.Message != "" {
+			if err := bh.SendNotification(n.Message); err != nil {
+				log.Printf("推送升级成功通知给客户失败: %v", err)
+			}
+		}
 		return true
 
 	case notifTypeFetchLogs:

@@ -214,7 +214,7 @@ func (h *Handler) advanceReleaseVersion(chat int64, c *conversation, text string
 		if notes != "" {
 			msg += "\n\n" + notes
 		}
-		_ = h.store.BroadcastNotification("update_info", version, msg)
+		_ = h.store.BroadcastNotification("update_available", version, msg)
 		h.reply(chat, "✅ 已发布 <b>"+version+"</b>，所有客户将在下次心跳收到通知并自动更新")
 		h.endConversation(chat)
 		h.sendMainMenu(chat)
