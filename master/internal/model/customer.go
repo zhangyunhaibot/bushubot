@@ -22,7 +22,7 @@ type Customer struct {
 	MemTotalMB    int     `json:"mem_total_mb,omitempty"`
 	DiskUsedGB    int     `json:"disk_used_gb,omitempty"`
 	DiskTotalGB   int     `json:"disk_total_gb,omitempty"`
-	Load1m        float64 `gorm:"type:decimal(6,2)" json:"load_1m,omitempty"`
+	Load1m        float64 `gorm:"column:load_1m;type:decimal(6,2)" json:"load_1m,omitempty"`
 	CPUCount      int     `json:"cpu_count,omitempty"`
 	UptimeSeconds int64   `json:"uptime_seconds,omitempty"`
 
@@ -82,7 +82,7 @@ type MetricsSnapshot struct {
 	MemTotalMB  int
 	DiskUsedGB  int
 	DiskTotalGB int
-	Load1m      float64 `gorm:"type:decimal(6,2)"`
+	Load1m      float64 `gorm:"column:load_1m;type:decimal(6,2)"`
 	CPUCount    int
 	SnapshotAt  time.Time
 }
