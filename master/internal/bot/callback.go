@@ -190,6 +190,20 @@ func (h *Handler) handleCustomerAction(chat int64, msgID int, data string) {
 		h.sendConfirmPage(chat, msgID, c, "reissue", "🔁 重签 License",
 			"会签发一个新 token, 旧 token 仍可用直到过期; 客户需要替换 config.json 重启")
 
+	case "askDelete":
+		h.sendConfirmPage(chat, msgID, c, "delete", "🗑️ 永久删除客户",
+			"删除后无法恢复! 客户的全部记录 (心跳/指标/日志/通知) 都会清空.\n"+
+				"⚠️ 注意: 客户机上 tgfulibot 仍能跑 (license 离线校验), 想让它真停, 应该先停用并等心跳确认 stop 后再删, 或客户那边 SSH stop tgfulibot.service")
+
+	case "delete":
+		if err := h.store.DeleteCustomer(c.ID); err != nil {
+			h.reply(chat, "删除失败: "+err.Error())
+			return
+		}
+		h.reply(chat, "🗑️ 已删除客户 <b>"+htmlEsc(c.Name)+"</b>（不可恢复）")
+		// 删完没法停留在详情页 (客户不存在了), 跳回客户列表
+		h.sendCustomerListPage(chat, msgID, 0)
+
 	case "restart":
 		if !c.Enabled {
 			h.reply(chat, "⚠️ 客户已停用，先启用再重启")

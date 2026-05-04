@@ -129,6 +129,34 @@ func (s *Store) SetLicenseExpires(id uint, expires time.Time) error {
 		Update("license_expires_at", expires).Error
 }
 
+// DeleteCustomer 物理删除客户及其全部关联记录 (无法恢复)
+// 先删子表 (有外键约束的: metrics_snapshots / agent_events / notifications / agent_logs),
+// 再删主表 customers; 用事务保证一致性
+//
+// 注意: 删除后 agent 心跳会因 license 找不到 customer 而 401, 但客户机
+// 上的 tgfulibot 仍然能跑 (license 是离线校验). 想让客户业务真停, 应该先
+// "停用" 等心跳确认 stop 后再删, 或客户那边走 SSH stop tgfulibot.service
+func (s *Store) DeleteCustomer(id uint) error {
+	return s.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("customer_id = ?", id).Delete(&model.MetricsSnapshot{}).Error; err != nil {
+			return fmt.Errorf("删除 metrics_snapshots 失败: %w", err)
+		}
+		if err := tx.Where("customer_id = ?", id).Delete(&model.AgentEvent{}).Error; err != nil {
+			return fmt.Errorf("删除 agent_events 失败: %w", err)
+		}
+		if err := tx.Where("customer_id = ?", id).Delete(&model.Notification{}).Error; err != nil {
+			return fmt.Errorf("删除 notifications 失败: %w", err)
+		}
+		if err := tx.Where("customer_id = ?", id).Delete(&model.AgentLog{}).Error; err != nil {
+			return fmt.Errorf("删除 agent_logs 失败: %w", err)
+		}
+		if err := tx.Delete(&model.Customer{}, id).Error; err != nil {
+			return fmt.Errorf("删除 customers 失败: %w", err)
+		}
+		return nil
+	})
+}
+
 // ---------- releases ----------
 
 func (s *Store) GetLatestRelease() (*model.Release, error) {

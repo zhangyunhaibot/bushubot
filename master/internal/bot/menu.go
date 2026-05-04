@@ -241,6 +241,8 @@ func (h *Handler) sendCustomerDetail(chat int64, msgID int, c *model.Customer) {
 			btn(togglelabel, "cust:"+id+":"+togglekey),
 			btn("🔙 客户列表", "menu:customers"),
 		),
+		// 删除独立一行放在最底部, 物理上离常用按钮最远, 防止误触
+		row(btn("🗑️ 删除客户", "cust:"+id+":askDelete")),
 	)
 	h.sendOrEdit(chat, msgID, text, &kb)
 }
