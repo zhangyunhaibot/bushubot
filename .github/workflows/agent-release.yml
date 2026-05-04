@@ -1,0 +1,68 @@
+# 拷贝到 bushubot 仓: .github/workflows/agent-release.yml
+# 触发: push 形如 agent-v* 的 tag, 例如 git tag agent-v0.1 && git push --tags
+# 产物: 直接发到 bushubot 自己的 Release（这个仓最好也是公开的）
+
+name: Agent Release
+
+on:
+  push:
+    tags:
+      - 'agent-v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.5'
+          cache: true
+          cache-dependency-path: agent/go.sum
+
+      - name: Read version
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Build agent
+        working-directory: agent
+        env:
+          CGO_ENABLED: 0
+          GOOS: linux
+          GOARCH: amd64
+        run: |
+          go build \
+            -trimpath \
+            -ldflags="-s -w -X main.Version=${{ steps.version.outputs.VERSION }}" \
+            -o bushubot-agent \
+            ./cmd
+
+      - name: Package
+        working-directory: agent
+        run: |
+          STAGE="bushubot-agent-${{ steps.version.outputs.VERSION }}-linux-amd64"
+          mkdir "$STAGE"
+          cp bushubot-agent "$STAGE/"
+          cp config.example.json "$STAGE/"
+          tar -czf "$STAGE.tar.gz" "$STAGE"
+          sha256sum "$STAGE.tar.gz" > "$STAGE.tar.gz.sha256"
+
+      - name: Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        working-directory: agent
+        run: |
+          STAGE="bushubot-agent-${{ steps.version.outputs.VERSION }}-linux-amd64"
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          gh release create "$VERSION" \
+            --title "$VERSION" \
+            --notes "Auto-built from tag $VERSION" \
+            "$STAGE.tar.gz" "$STAGE.tar.gz.sha256" \
+          || gh release upload "$VERSION" \
+            --clobber \
+            "$STAGE.tar.gz" "$STAGE.tar.gz.sha256"
