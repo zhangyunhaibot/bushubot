@@ -207,16 +207,21 @@ func (u *Updater) SelfUpdate(version, downloadURL, agentBinaryName, selfBinaryPa
 		return fmt.Errorf("解压结果里找不到 %s", agentBinaryName)
 	}
 
-	// 备份当前 agent 二进制（万一新版起不来，systemd 也认旧路径，用 .failed 标记便于排查）
+	// 用 rename 备份当前 agent 二进制：
+	//   rename 只改目录条目, 不动 inode, 运行中的 agent 进程仍持有旧 inode 不受影响;
+	//   原路径变空, 后续 copyFile 是 O_CREATE 一个新 inode, 不会触发 ETXTBSY.
+	// （copyFile 内部用 O_TRUNC, 直接覆盖运行中的 ELF 会报 "text file busy")
 	timestamp := time.Now().Format("20060102150405")
 	bakPath := selfBinaryPath + ".bak." + timestamp
-	if err := copyFile(selfBinaryPath, bakPath, 0o755); err != nil {
+	if err := os.Rename(selfBinaryPath, bakPath); err != nil {
 		return fmt.Errorf("备份当前 agent 失败: %w", err)
 	}
 
-	// 替换自身二进制（Linux 允许覆盖运行中的二进制）
+	// 写入新二进制（路径已空，是 create 新 inode，不会 busy）
 	if err := copyFile(newBin, selfBinaryPath, 0o755); err != nil {
-		return fmt.Errorf("替换 agent 二进制失败: %w", err)
+		// 写入失败把备份还原回原路径，避免 systemd 重启找不到二进制
+		_ = os.Rename(bakPath, selfBinaryPath)
+		return fmt.Errorf("写入新 agent 二进制失败: %w", err)
 	}
 
 	// 写一个标记文件，避免重复升到同一版本
