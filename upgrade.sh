@@ -21,7 +21,7 @@
 set -euo pipefail
 
 APP_NAME="tgfulibot"
-APP_USER="bushubot"
+APP_USER="tgfulibot" # 跟 install.sh 保持一致 (主控 master-install.sh 才用 bushubot)
 APP_DIR="/opt/tgfulibot"
 BACKEND_DIR="${APP_DIR}/backend"
 AGENT_DIR="${APP_DIR}/agent"
