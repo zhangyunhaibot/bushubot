@@ -2,13 +2,46 @@ package bot
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"bushubot-master/internal/model"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
+
+const (
+	// customerOfflineThreshold 与 alerter.offlineThreshold 保持一致 (40 min)
+	// 心跳间隔默认 20 min, 超过 2 倍间隔没心跳就标 🔴
+	customerOfflineThreshold = 40 * time.Minute
+	// customersPerPage 客户列表每页按钮数 (5 行 × 2 列)
+	customersPerPage = 10
+)
+
+// customerHealthEmoji 客户健康状态符号: 🟢 在线, 🔴 已停用 / 心跳超时
+func customerHealthEmoji(c *model.Customer) string {
+	if !c.Enabled {
+		return "🔴"
+	}
+	if c.LastHeartbeatAt == nil {
+		return "🔴"
+	}
+	if time.Since(*c.LastHeartbeatAt) > customerOfflineThreshold {
+		return "🔴"
+	}
+	return "🟢"
+}
+
+// customerListLabel 列表按钮 label, 例: "🟢 测试王 v0.51"
+func customerListLabel(c *model.Customer) string {
+	ver := c.CurrentVersion
+	if ver == "" {
+		ver = "?"
+	}
+	return customerHealthEmoji(c) + " " + c.Name + " " + ver
+}
 
 // callback_data 命名约定（< 64 字节）：
 //   menu:main / menu:customers / menu:version / menu:license / menu:notify
@@ -48,44 +81,77 @@ func (h *Handler) editToMainMenu(chat int64, msgID int) {
 // ---------------- 客户列表 ----------------
 
 func (h *Handler) sendCustomerListMenu(chat int64, msgID int) {
+	h.sendCustomerListPage(chat, msgID, 0)
+}
+
+// sendCustomerListPage 渲染客户列表第 page 页 (0-based)
+// 设计:
+//   - 异常 (🔴) 客户排前面, 然后按名字字典序
+//   - 每页 customersPerPage 个按钮, 2 列布局, label = "🟢 测试王 v0.51"
+//   - 客户超 1 页时显示翻页按钮; 1 页能装下时不显示
+//   - 顶部文字仅展示总数和异常数 (🟢 X · 🔴 Y), 不再列每个客户细节 (避免客户多时刷屏)
+func (h *Handler) sendCustomerListPage(chat int64, msgID int, page int) {
 	customers, err := h.store.ListCustomers()
 	if err != nil {
 		h.reply(chat, "查询失败: "+err.Error())
 		return
 	}
 
-	text := fmt.Sprintf("👥 <b>客户列表</b>（共 %d 个）\n\n", len(customers))
-	if len(customers) == 0 {
-		text += "暂无客户。"
-	} else {
-		for _, c := range customers {
-			state := "🟢"
-			if !c.Enabled {
-				state = "🔴"
-			}
-			ver := c.CurrentVersion
-			if ver == "" {
-				ver = "?"
-			}
-			ip := c.ServerIP
-			if ip == "" {
-				ip = "?"
-			}
-			text += fmt.Sprintf("%s <code>%s</code> · v=%s · %s\n", state, htmlEsc(c.Name), htmlEsc(ver), htmlEsc(ip))
+	// 异常优先排序: 🔴 排前; 同状态内按名字字典序
+	sort.SliceStable(customers, func(i, j int) bool {
+		ei := customerHealthEmoji(&customers[i])
+		ej := customerHealthEmoji(&customers[j])
+		if ei != ej {
+			return ei == "🔴" // 🔴 排前
 		}
-		text += "\n点客户进入操作面板："
+		return customers[i].Name < customers[j].Name
+	})
+
+	// 统计在线 / 异常
+	online, offline := 0, 0
+	for i := range customers {
+		if customerHealthEmoji(&customers[i]) == "🟢" {
+			online++
+		} else {
+			offline++
+		}
 	}
 
+	total := len(customers)
+	totalPages := 1
+	if total > 0 {
+		totalPages = (total + customersPerPage - 1) / customersPerPage
+	}
+	if page < 0 {
+		page = 0
+	}
+	if page >= totalPages {
+		page = totalPages - 1
+	}
+
+	text := fmt.Sprintf("👥 <b>客户列表</b>\n共 %d 个 · 🟢 %d 在线 · 🔴 %d 异常",
+		total, online, offline)
+	if total == 0 {
+		text += "\n\n暂无客户。"
+	} else if totalPages > 1 {
+		text += fmt.Sprintf("\n第 %d / %d 页", page+1, totalPages)
+	}
+
+	// 当前页客户切片
+	start := page * customersPerPage
+	end := start + customersPerPage
+	if end > total {
+		end = total
+	}
+	pageCustomers := customers[start:end]
+
 	rows := [][]tgbotapi.InlineKeyboardButton{}
-	// 一行最多 3 个客户名
+	// 一行 2 个按钮, label 较长 (含名字 + 版本号), 2 列更耐看
 	cur := []tgbotapi.InlineKeyboardButton{}
-	for _, c := range customers {
-		label := c.Name
-		if !c.Enabled {
-			label = "🔴 " + label
-		}
-		cur = append(cur, btn(label, "cust:"+strconv.Itoa(int(c.ID))+":detail"))
-		if len(cur) == 3 {
+	for i := range pageCustomers {
+		c := &pageCustomers[i]
+		cur = append(cur, btn(customerListLabel(c), "cust:"+strconv.Itoa(int(c.ID))+":detail"))
+		if len(cur) == 2 {
 			rows = append(rows, cur)
 			cur = []tgbotapi.InlineKeyboardButton{}
 		}
@@ -93,6 +159,21 @@ func (h *Handler) sendCustomerListMenu(chat int64, msgID int) {
 	if len(cur) > 0 {
 		rows = append(rows, cur)
 	}
+
+	// 翻页控件 (仅多页时显示)
+	if totalPages > 1 {
+		var pager []tgbotapi.InlineKeyboardButton
+		if page > 0 {
+			pager = append(pager, btn("⬅️ 上页", "custpg:"+strconv.Itoa(page-1)))
+		}
+		if page < totalPages-1 {
+			pager = append(pager, btn("➡️ 下页", "custpg:"+strconv.Itoa(page+1)))
+		}
+		if len(pager) > 0 {
+			rows = append(rows, pager)
+		}
+	}
+
 	rows = append(rows, row(btn("➕ 添加客户", "add:start"), btn("🔙 返回", "menu:main")))
 
 	kb := tgbotapi.NewInlineKeyboardMarkup(rows...)
@@ -106,9 +187,12 @@ func (h *Handler) sendCustomerDetail(chat int64, msgID int, c *model.Customer) {
 	if c.LastHeartbeatAt != nil {
 		hb = c.LastHeartbeatAt.Format("01-02 15:04:05")
 	}
-	state := "🟢 启用"
+	// 状态口径与客户列表一致: 看 enabled + 是否心跳超时
+	state := "🟢 在线"
 	if !c.Enabled {
-		state = "🔴 停用"
+		state = "🔴 已停用"
+	} else if c.LastHeartbeatAt == nil || time.Since(*c.LastHeartbeatAt) > customerOfflineThreshold {
+		state = "🔴 离线"
 	}
 	text := fmt.Sprintf(
 		"📌 <b>%s</b>\n"+

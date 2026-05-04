@@ -73,9 +73,10 @@ const (
 	ruleMemHigh  = "mem_high"
 	ruleOffline  = "offline"
 
-	thresholdDiskPct  = 90 // 磁盘超 90% 告警
-	thresholdMemPct   = 90 // 内存超 90% 告警
-	offlineThreshold  = 10 * time.Minute
+	thresholdDiskPct = 90 // 磁盘超 90% 告警
+	thresholdMemPct  = 90 // 内存超 90% 告警
+	// agent 心跳间隔默认 20 min, 这里给 2 倍容错: 40 min 没心跳才算掉线
+	offlineThreshold  = 40 * time.Minute
 	ruleAlertCooldown = 1 * time.Hour
 )
 

@@ -63,13 +63,18 @@ func main() {
 		log.Fatalf("客户 Bot 初始化失败: %v", err)
 	}
 
-	// 心跳轮询
-	tick := time.NewTicker(time.Duration(cfg.HeartbeatIntervalSeconds) * time.Second)
-	defer tick.Stop()
+	// 两个独立 ticker:
+	//   - heartbeatTick: 健康心跳, 上报 cpu/内存/磁盘 指标 (默认 20 min)
+	//   - commandTick:   命令拉取, 拉 master 推送的远程指令 (默认 60s)
+	// 拆开是因为心跳放慢后 (20 min) 远程操作 ≤60s 生效不能等心跳, 必须独立拉
+	heartbeatTick := time.NewTicker(time.Duration(cfg.HeartbeatIntervalSeconds) * time.Second)
+	defer heartbeatTick.Stop()
+	commandTick := time.NewTicker(time.Duration(cfg.CommandPullIntervalSeconds) * time.Second)
+	defer commandTick.Stop()
 
 	graceDuration := time.Duration(cfg.GraceDaysOffline) * 24 * time.Hour
 
-	// 立即触发一次
+	// 立即触发一次首次心跳, 让 master 知道客户上线了, 否则要等 20 min
 	go func() {
 		if hb, err := heartbeat(masterCli, state); err != nil {
 			log.Printf("首次心跳失败: %v", err)
@@ -86,7 +91,7 @@ func main() {
 
 	for {
 		select {
-		case <-tick.C:
+		case <-heartbeatTick.C:
 			hb, err := heartbeat(masterCli, state)
 			if err != nil {
 				log.Printf("心跳失败: %v", err)
@@ -95,6 +100,7 @@ func main() {
 			}
 			state.markSuccess()
 			handleHeartbeatResp(upd, masterCli, state, hb)
+		case <-commandTick.C:
 			pullNotifications(masterCli, botHandler, upd, state)
 		case <-sig:
 			log.Println("收到退出信号，停止 agent")

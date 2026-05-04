@@ -76,6 +76,15 @@ func (h *Handler) handleCallback(cb *tgbotapi.CallbackQuery) {
 	case data == "conv:cancel":
 		h.cancelConversation(chat, msgID)
 
+	case strings.HasPrefix(data, "custpg:"):
+		// custpg:<page> 客户列表翻页
+		pageStr := strings.TrimPrefix(data, "custpg:")
+		page, err := strconv.Atoi(pageStr)
+		if err != nil {
+			page = 0
+		}
+		h.sendCustomerListPage(chat, msgID, page)
+
 	case strings.HasPrefix(data, "cust:"):
 		h.handleCustomerAction(chat, msgID, data)
 
