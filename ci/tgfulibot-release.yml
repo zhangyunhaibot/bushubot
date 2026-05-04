@@ -1,0 +1,95 @@
+# 拷贝到 TGfulibot 项目: .github/workflows/release.yml
+# 触发: push 一个 v* 的 tag, 例如 git tag v0.13 && git push --tags
+# 产物: 推到公开仓 TGfulibot-releases 的 Release, 客户可零凭证下载
+#
+# 前置准备 (一次性):
+#   1. 新建一个公开仓库: TGfulibot-releases
+#   2. 创建一个 fine-grained PAT:
+#      - 访问 https://github.com/settings/personal-access-tokens/new
+#      - Repository access: Only select repositories → 勾 TGfulibot-releases
+#      - Permissions: Contents → Read and write
+#   3. 把 PAT 加到 TGfulibot 仓的 Settings → Secrets → Actions:
+#      - 名字: RELEASE_REPO_TOKEN
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_REPO: zhangyunhaibot/TGfulibot-releases
+      APP_NAME: tgfulibot
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.5'
+          cache: true
+          cache-dependency-path: backend/go.sum
+
+      - name: Read version
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Build (linux/amd64)
+        working-directory: backend
+        env:
+          CGO_ENABLED: 0
+          GOOS: linux
+          GOARCH: amd64
+        run: |
+          go build \
+            -trimpath \
+            -ldflags="-s -w -X main.Version=${{ steps.version.outputs.VERSION }}" \
+            -o ${{ env.APP_NAME }} \
+            ./cmd
+
+      - name: Package tar.gz
+        working-directory: backend
+        run: |
+          STAGE="${{ env.APP_NAME }}-${{ steps.version.outputs.VERSION }}-linux-amd64"
+          mkdir "$STAGE"
+          cp ${{ env.APP_NAME }} "$STAGE/"
+          # migrations 跟二进制一起打包 (项目当前从文件系统读)
+          # 后期 embed 之后可以去掉
+          cp -r migrations "$STAGE/"
+          cp config.example.json "$STAGE/"
+          tar -czf "$STAGE.tar.gz" "$STAGE"
+          sha256sum "$STAGE.tar.gz" > "$STAGE.tar.gz.sha256"
+          ls -lh "$STAGE.tar.gz"*
+
+      - name: Create release on public repo
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_REPO_TOKEN }}
+        working-directory: backend
+        run: |
+          STAGE="${{ env.APP_NAME }}-${{ steps.version.outputs.VERSION }}-linux-amd64"
+          VERSION="${{ steps.version.outputs.VERSION }}"
+
+          # 在公开仓里建 release（如果已存在就追加 asset）
+          gh release create "$VERSION" \
+            --repo "$RELEASE_REPO" \
+            --title "$VERSION" \
+            --notes "Auto-built from tag $VERSION" \
+            "$STAGE.tar.gz" "$STAGE.tar.gz.sha256" \
+          || gh release upload "$VERSION" \
+            --repo "$RELEASE_REPO" \
+            --clobber \
+            "$STAGE.tar.gz" "$STAGE.tar.gz.sha256"
+
+      - name: Print download URL
+        run: |
+          echo "::notice::客户下载地址:"
+          echo "::notice::https://github.com/${{ env.RELEASE_REPO }}/releases/download/${{ steps.version.outputs.VERSION }}/${{ env.APP_NAME }}-${{ steps.version.outputs.VERSION }}-linux-amd64.tar.gz"

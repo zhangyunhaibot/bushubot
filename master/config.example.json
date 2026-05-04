@@ -1,0 +1,21 @@
+{
+  "server": {
+    "port": 8081
+  },
+  "database": {
+    "host": "localhost",
+    "port": 5432,
+    "user": "bushubot",
+    "password": "your_password",
+    "dbname": "bushubot_master"
+  },
+  "telegram_bot": {
+    "token": "MASTER_BOT_TOKEN_FROM_BOTFATHER",
+    "admin_tg_id": 123456789
+  },
+  "release_repo": "zhangyunhaibot/TGfulibot-releases",
+  "license": {
+    "keypair_dir": "./data/keys",
+    "default_days": 365
+  }
+}

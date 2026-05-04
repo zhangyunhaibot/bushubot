@@ -1,0 +1,22 @@
+# 编译产物
+/bin/
+/tmp/
+*.exe
+bushubot-master
+bushubot-agent
+
+# Go
+/master/.gocache/
+/agent/.gocache/
+
+# 配置（含密钥）
+/master/config.json
+/agent/config.json
+/master/data/
+**/.env
+**/.env.*
+
+# 系统
+.DS_Store
+*.swp
+*~

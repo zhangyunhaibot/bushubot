@@ -1,0 +1,12 @@
+{
+  "master_url": "https://master.bushubot.example.com",
+  "license_key": "REPLACE_ME_WITH_LICENSE_TOKEN_FROM_MASTER",
+  "bot_token": "REPLACE_ME_WITH_CUSTOMER_TG_BOT_TOKEN",
+  "owner_tg_id": 0,
+  "heartbeat_interval_seconds": 60,
+  "grace_days_offline": 7,
+  "app_name": "tgfulibot",
+  "app_dir": "/opt/tgfulibot",
+  "binary_path": "/opt/tgfulibot/backend/tgfulibot",
+  "service_name": "tgfulibot.service"
+}

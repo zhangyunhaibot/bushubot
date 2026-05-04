@@ -1,0 +1,39 @@
+// 这是要加到 TGfulibot 项目 backend/cmd/main.go 的代码片段。
+// 不是独立 Go 文件，文件名 .txt 是为了不被编译。
+//
+// 加在 cfg := config.GetConfig() 之后、数据库初始化之前。
+
+import (
+    "log"
+    "os"
+    "time"
+
+    "telegrambot/internal/license" // 注意 module 名按你项目实际改
+)
+
+func main() {
+    cfg := config.GetConfig()
+
+    // ==================== 新增：license 校验 ====================
+    if cfg.License.Token == "" {
+        log.Fatal("config.json 缺少 license.token，无法启动。请联系运维拿到授权码。")
+    }
+    licPayload, err := license.Verify(cfg.License.Token)
+    if err != nil {
+        log.Fatalf("license 校验失败: %v", err)
+    }
+    log.Printf("license 通过校验: 客户=%s, 到期=%s",
+        licPayload.CustomerName, licPayload.ExpiresAt.Format("2006-01-02"))
+    // 启动后台 goroutine：每 12 小时复查一次 license（应对到期边界）
+    go func() {
+        for range time.Tick(12 * time.Hour) {
+            if _, err := license.Verify(cfg.License.Token); err != nil {
+                log.Printf("license 复查失败: %v，主程序将退出", err)
+                os.Exit(2)
+            }
+        }
+    }()
+    // ===========================================================
+
+    // ... 数据库初始化、Bot 启动等等保持原样
+}
