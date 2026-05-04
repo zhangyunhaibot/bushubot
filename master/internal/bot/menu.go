@@ -203,13 +203,16 @@ func (h *Handler) sendCustomerDetail(chat int64, msgID int, c *model.Customer) {
 			"• Agent 版本: %s\n"+
 			"• 最后心跳: %s\n"+
 			"• 状态: %s\n"+
+			"• License: %s\n"+
 			"• 备注: %s\n"+
 			"━━━━━━━━━━━━\n%s",
 		htmlEsc(c.Name), c.TGUserID,
 		htmlEsc(emptyDash(c.ServerIP)),
 		htmlEsc(emptyDash(c.CurrentVersion)),
 		htmlEsc(emptyDash(c.AgentVersion)),
-		hb, state, htmlEsc(emptyDash(c.Note)),
+		hb, state,
+		formatLicenseRemaining(c.LicenseExpiresAt),
+		htmlEsc(emptyDash(c.Note)),
 		formatMetrics(c),
 	)
 
@@ -487,4 +490,25 @@ func emptyDash(s string) string {
 		return "-"
 	}
 	return s
+}
+
+// formatLicenseRemaining 渲染 license 倒计时文字, 例:
+//   - 未签发:        "未签发"
+//   - 还剩 ≥7 天:    "2027-05-04 (还剩 364 天)"
+//   - <7 天 / 已过期: 加 ⚠️ 红字提醒
+func formatLicenseRemaining(expires *time.Time) string {
+	if expires == nil {
+		return "未签发"
+	}
+	dateStr := expires.Format("2006-01-02")
+	now := time.Now()
+	if !now.Before(*expires) {
+		return fmt.Sprintf("⚠️ %s（已过期）", dateStr)
+	}
+	// 按"日历天"算剩余天数, 不是按 24h 一段
+	days := int(expires.Sub(now).Hours()/24) + 1
+	if days <= 7 {
+		return fmt.Sprintf("⚠️ %s（还剩 %d 天）", dateStr, days)
+	}
+	return fmt.Sprintf("%s（还剩 %d 天）", dateStr, days)
 }

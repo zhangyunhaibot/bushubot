@@ -122,6 +122,13 @@ func (s *Store) SetEnabled(id uint, enabled bool) error {
 		Update("enabled", enabled).Error
 }
 
+// SetLicenseExpires 写入 license 到期时间, 在签发 / 重签 token 后调用,
+// 让客户详情页能展示倒计时。token 本身不入库（防泄漏）, 只存 expires。
+func (s *Store) SetLicenseExpires(id uint, expires time.Time) error {
+	return s.DB.Model(&model.Customer{}).Where("id = ?", id).
+		Update("license_expires_at", expires).Error
+}
+
 // ---------- releases ----------
 
 func (s *Store) GetLatestRelease() (*model.Release, error) {

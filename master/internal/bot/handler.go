@@ -294,6 +294,11 @@ func (h *Handler) signNewToken(c *model.Customer, days int) (string, time.Time, 
 	if err != nil {
 		return "", time.Time{}, err
 	}
+	// 把到期时间写回 customers, 让客户详情页能展示倒计时
+	// 写库失败不阻塞签发: token 已生成, 只是详情页倒计时不准, 不影响业务
+	if err := h.store.SetLicenseExpires(c.ID, expires); err != nil {
+		log.Printf("写入 license_expires_at 失败 (customer=%d): %v", c.ID, err)
+	}
 	return tok, expires, nil
 }
 

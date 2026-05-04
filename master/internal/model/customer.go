@@ -3,19 +3,20 @@ package model
 import "time"
 
 type Customer struct {
-	ID              uint       `gorm:"primaryKey" json:"id"`
-	Name            string     `gorm:"size:100;not null" json:"name"`
-	TGUserID        int64      `gorm:"column:tg_user_id;not null" json:"tg_user_id"`
-	BotToken        string     `gorm:"size:100;not null" json:"-"` // 不下发
-	LicenseKey      string     `gorm:"size:64;uniqueIndex;not null" json:"-"`
-	ServerIP        string     `gorm:"size:45" json:"server_ip"`
-	CurrentVersion  string     `gorm:"size:32" json:"current_version"`
-	AgentVersion    string     `gorm:"size:32" json:"agent_version"`
-	LastHeartbeatAt *time.Time `json:"last_heartbeat_at"`
-	Enabled         bool       `gorm:"default:true" json:"enabled"`
-	Note            string     `json:"note"`
-	CloudProvider   string     `gorm:"size:32" json:"cloud_provider,omitempty"`
-	CloudAccountRef string     `gorm:"size:64" json:"cloud_account_ref,omitempty"`
+	ID               uint       `gorm:"primaryKey" json:"id"`
+	Name             string     `gorm:"size:100;not null" json:"name"`
+	TGUserID         int64      `gorm:"column:tg_user_id;not null" json:"tg_user_id"`
+	BotToken         string     `gorm:"size:100;not null" json:"-"` // 不下发
+	LicenseKey       string     `gorm:"size:64;uniqueIndex;not null" json:"-"`
+	LicenseExpiresAt *time.Time `json:"license_expires_at,omitempty"`
+	ServerIP         string     `gorm:"size:45" json:"server_ip"`
+	CurrentVersion   string     `gorm:"size:32" json:"current_version"`
+	AgentVersion     string     `gorm:"size:32" json:"agent_version"`
+	LastHeartbeatAt  *time.Time `json:"last_heartbeat_at"`
+	Enabled          bool       `gorm:"default:true" json:"enabled"`
+	Note             string     `json:"note"`
+	CloudProvider    string     `gorm:"size:32" json:"cloud_provider,omitempty"`
+	CloudAccountRef  string     `gorm:"size:64" json:"cloud_account_ref,omitempty"`
 
 	// 资源指标（每次心跳更新最新值）
 	MemUsedMB     int     `json:"mem_used_mb,omitempty"`
@@ -43,10 +44,10 @@ type Release struct {
 func (Release) TableName() string { return "releases" }
 
 type AgentEvent struct {
-	ID           uint      `gorm:"primaryKey"`
-	CustomerID   uint      `gorm:"index"`
-	EventType    string    `gorm:"size:32"`
-	Version      string    `gorm:"size:32"`
+	ID           uint   `gorm:"primaryKey"`
+	CustomerID   uint   `gorm:"index"`
+	EventType    string `gorm:"size:32"`
+	Version      string `gorm:"size:32"`
 	ErrorMessage string
 	CreatedAt    time.Time
 }
@@ -68,16 +69,16 @@ type Notification struct {
 func (Notification) TableName() string { return "notifications" }
 
 type Setting struct {
-	Key       string    `gorm:"primaryKey;size:64"`
-	Value     string    `gorm:"not null"`
+	Key       string `gorm:"primaryKey;size:64"`
+	Value     string `gorm:"not null"`
 	UpdatedAt time.Time
 }
 
 func (Setting) TableName() string { return "settings" }
 
 type MetricsSnapshot struct {
-	ID          uint64    `gorm:"primaryKey"`
-	CustomerID  uint      `gorm:"index"`
+	ID          uint64 `gorm:"primaryKey"`
+	CustomerID  uint   `gorm:"index"`
 	MemUsedMB   int
 	MemTotalMB  int
 	DiskUsedGB  int
@@ -90,10 +91,10 @@ type MetricsSnapshot struct {
 func (MetricsSnapshot) TableName() string { return "metrics_snapshots" }
 
 type AgentLog struct {
-	ID         uint      `gorm:"primaryKey"`
-	CustomerID uint      `gorm:"index"`
-	Service    string    `gorm:"size:64"`
-	Content    string    `gorm:"not null"`
+	ID         uint   `gorm:"primaryKey"`
+	CustomerID uint   `gorm:"index"`
+	Service    string `gorm:"size:64"`
+	Content    string `gorm:"not null"`
 	Bytes      int
 	ReceivedAt time.Time `gorm:"default:now()"`
 }
@@ -101,12 +102,12 @@ type AgentLog struct {
 func (AgentLog) TableName() string { return "agent_logs" }
 
 type Broadcast struct {
-	ID          uint      `gorm:"primaryKey"`
-	Template    string    `gorm:"size:64;not null"` // maintenance / maintenance_done / version_preview / upgrade_failed / custom / auto_alert
-	Title       string    `gorm:"size:200"`
-	Content     string    `gorm:"not null"`
-	TargetCount int       `gorm:"not null;default:0"`
-	SentBy      string    `gorm:"size:32;default:admin"`
+	ID          uint   `gorm:"primaryKey"`
+	Template    string `gorm:"size:64;not null"` // maintenance / maintenance_done / version_preview / upgrade_failed / custom / auto_alert
+	Title       string `gorm:"size:200"`
+	Content     string `gorm:"not null"`
+	TargetCount int    `gorm:"not null;default:0"`
+	SentBy      string `gorm:"size:32;default:admin"`
 	Note        string
 	CreatedAt   time.Time
 }
